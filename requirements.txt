@@ -1,0 +1,5 @@
+r2r
+python-dotenv
+fastapi
+uvicorn[standard]
+pydantic 
