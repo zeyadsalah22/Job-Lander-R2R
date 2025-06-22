@@ -14,7 +14,7 @@ class R2RChatbot:
     R2R Async Chatbot class for handling job applications portfolio interactions.
     """
     
-    def __init__(self, user_id, api_key=None, base_url="https://api.sciphi.ai"):
+    def __init__(self, user_id, base_url="http://localhost:7272"):
         """
         Initialize R2R Async Chatbot.
         
@@ -22,27 +22,26 @@ class R2RChatbot:
             api_key: R2R API key (optional, can be set via environment variable)
             base_url: R2R API base URL
         """
-        self.client = self._initialize_client(api_key, base_url)
+        self.client = None
         self.document_id = None
         self.conversation_id = None
         self.document_path = f"docs/job_applications_user_{user_id}.md"
+        self.base_url = base_url
+        self.user_id = user_id
     
-    def _initialize_client(self, api_key=None, base_url="https://api.sciphi.ai"):
+    async def _initialize_client(self):
         """Initialize R2R async client with proper authentication"""
         try:
-            # Option 1: Use local R2R instance (if you have one running)
-            # client = R2RAsyncClient(base_url="http://localhost:7272")
-            
-            # Option 2: Use SciPhi Cloud (requires API key)
-            api_key = api_key or os.getenv("R2R_API_KEY")
-            if api_key:
-                client = R2RAsyncClient(base_url=base_url)
-                # You may need to login if using cloud
-                # await client.users.login(email="your_email", password="your_password")
-                return client
-            else:
-                print("Warning: No R2R_API_KEY found in environment variables")
-                return None
+            # Create the client first
+            client = R2RAsyncClient(base_url=self.base_url)
+            client.set_api_key(None)
+            # Login with the user credentials
+            login_response = await client.users.login("zeyad.moussa@ejust.edu.eg", "R2R@123")
+            print("Successfully logged in to local R2R instance")
+            return client
+                
+                
+                    
         except Exception as e:
             print(f"Error initializing R2R async client: {e}")
             return None
@@ -56,12 +55,13 @@ class R2RChatbot:
             questions_data: Dictionary containing questions and answers data
             output_filename: Name of the output document file
         """
-        
+        print(f"Number of applications: {len(applications_data.get('Items', []))}")
+        print(f"Number of questions: {len(questions_data.get('Items', []))}")
         # Create a mapping of applicationId to questions for quick lookup
         questions_by_app_id = {}
-        if 'items' in questions_data:
-            for question in questions_data['items']:
-                app_id = question['applicationId']
+        if 'Items' in questions_data:
+            for question in questions_data['Items']:
+                app_id = question['ApplicationId']
                 if app_id not in questions_by_app_id:
                     questions_by_app_id[app_id] = []
                 questions_by_app_id[app_id].append(question)
@@ -74,53 +74,53 @@ class R2RChatbot:
         document_content.append("")
         
         # Add summary statistics
-        total_applications = len(applications_data.get('items', []))
+        total_applications = len(applications_data.get('Items', []))
         document_content.append(f"## Summary")
         document_content.append(f"Total Applications: {total_applications}")
-        document_content.append(f"Total Questions Answered: {questions_data.get('totalCount', 0)}")
+        document_content.append(f"Total Questions Answered: {questions_data.get('TotalCount', 0)}")
         document_content.append("")
         document_content.append("-" * 3)
         document_content.append("")
         
         # Process each application
-        for i, application in enumerate(applications_data.get('items', []), 1):
-            app_id = application['applicationId']
+        for i, application in enumerate(applications_data.get('Items', []), 1):
+            app_id = application['ApplicationId']
             
             # Application Header
-            document_content.append(f"## APPLICATION {i}: {application['jobTitle']} at {application['companyName']}")
+            document_content.append(f"## APPLICATION {i}: {application['JobTitle']} at {application['CompanyName']}")
             # document_content.append("-" * 3)
             document_content.append("")
             
             # Basic Application Information
             document_content.append("### Basic Information")
             document_content.append(f"• Application ID: {app_id}")
-            document_content.append(f"• Job Title: {application['jobTitle']}")
-            document_content.append(f"• Job Type: {application['jobType']}")
-            document_content.append(f"• Company: {application['companyName']}")
-            document_content.append(f"• Location: {application['company']['location']}")
-            document_content.append(f"• Application Status: {application['status']}")
-            document_content.append(f"• Current Stage: {application['stage']}")
-            document_content.append(f"• Submission Date: {application['submissionDate']}")
+            document_content.append(f"• Job Title: {application['JobTitle']}")
+            document_content.append(f"• Job Type: {application['JobType']}")
+            document_content.append(f"• Company: {application['CompanyName']}")
+            document_content.append(f"• Location: {application['Company']['Location']}")
+            document_content.append(f"• Application Status: {application['Status']}")
+            document_content.append(f"• Current Stage: {application['Stage']}")
+            document_content.append(f"• Submission Date: {application['SubmissionDate']}")
             
             # ATS Score
-            if application.get('atsScore') is not None:
-                document_content.append(f"• ATS Score: {application['atsScore']}/100")
+            if application.get('AtsScore') is not None:
+                document_content.append(f"• ATS Score: {application['AtsScore']}/100")
             else:
                 document_content.append("• ATS Score: Not available")
             document_content.append("")
             
             # Company Details
             document_content.append("### Company Details")
-            company = application['company']
-            document_content.append(f"• Company Name: {company['name']}")
-            document_content.append(f"• Location: {company['location']}")
-            document_content.append(f"• Careers Website: {company['careersLink']}")
-            document_content.append(f"• LinkedIn: {company['linkedinLink']}")
+            company = application['Company']
+            document_content.append(f"• Company Name: {company['Name']}")
+            document_content.append(f"• Location: {company['Location']}")
+            document_content.append(f"• Careers Website: {company['CareersLink']}")
+            document_content.append(f"• LinkedIn: {company['LinkedinLink']}")
             document_content.append("")
             
             # Job Description
             document_content.append("### Job Description")
-            job_description = application.get('description', 'No description available')
+            job_description = application.get('Description', 'No description available')
             # Format the job description for better readability
             if len(job_description) > 100:
                 document_content.append(f"```")
@@ -131,21 +131,21 @@ class R2RChatbot:
             document_content.append("")
             
             # Application Link
-            if application.get('link'):
+            if application.get('Link'):
                 document_content.append("### Application Link")
-                document_content.append(f"• Job Posting URL: {application['link']}")
+                document_content.append(f"• Job Posting URL: {application['Link']}")
                 document_content.append("")
             
             # Contacted Employees (Referrals)
-            if application.get('contactedEmployees'):
+            if application.get('ContactedEmployees'):
                 document_content.append("### Contacted Employees (Referrals)")
-                for employee in application['contactedEmployees']:
-                    document_content.append(f"• **{employee['name']}**")
-                    document_content.append(f"  - Job Title: {employee['jobTitle']}")
-                    document_content.append(f"  - Email: {employee['email']}")
-                    document_content.append(f"  - LinkedIn: {employee['linkedinLink']}")
-                    document_content.append(f"  - Contact Status: {employee['contacted']}")
-                    document_content.append(f"  - Contacted Date: {employee['createdAt'][:10]}")
+                for employee in application['ContactedEmployees']:
+                    document_content.append(f"• **{employee['Name']}**")
+                    document_content.append(f"  - Job Title: {employee['JobTitle']}")
+                    document_content.append(f"  - Email: {employee['Email']}")
+                    document_content.append(f"  - LinkedIn: {employee['LinkedinLink']}")
+                    document_content.append(f"  - Contact Status: {employee['Contacted']}")
+                    document_content.append(f"  - Contacted Date: {employee['CreatedAt'][:10]}")
                     document_content.append("")
             else:
                 document_content.append("### Contacted Employees (Referrals)")
@@ -157,9 +157,9 @@ class R2RChatbot:
                 document_content.append("### Interview/Application Questions & Answers")
                 questions = questions_by_app_id[app_id]
                 for j, qa in enumerate(questions, 1):
-                    document_content.append(f"**Question {j}:** {qa['question1']}")
-                    document_content.append(f"**Answer:** {qa['answer']}")
-                    document_content.append(f"*Asked on: {qa['createdAt'][:10]}*")
+                    document_content.append(f"**Question {j}:** {qa['Question1']}")
+                    document_content.append(f"**Answer:** {qa['Answer']}")
+                    document_content.append(f"*Asked on: {qa['CreatedAt'][:10]}*")
                     document_content.append("")
             else:
                 document_content.append("### Interview/Application Questions & Answers")
@@ -168,9 +168,9 @@ class R2RChatbot:
             
             # Application Timeline
             document_content.append("### Timeline")
-            document_content.append(f"• Application Created: {application['createdAt'][:10]}")
-            document_content.append(f"• Last Updated: {application['updatedAt'][:10]}")
-            document_content.append(f"• Submission Date: {application['submissionDate']}")
+            document_content.append(f"• Application Created: {application['CreatedAt'][:10]}")
+            document_content.append(f"• Last Updated: {application['UpdatedAt'][:10]}")
+            document_content.append(f"• Submission Date: {application['SubmissionDate']}")
             document_content.append("")
             
             # Separator between applications
@@ -181,15 +181,15 @@ class R2RChatbot:
         document_content.append("## Document Metadata")
         document_content.append(f"• Total Applications Processed: {total_applications}")
         document_content.append(f"• Document Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        document_content.append(f"• Applications Data Pages: {applications_data.get('totalPages', 1)}")
-        document_content.append(f"• Questions Data Total: {questions_data.get('totalCount', 0)}")
+        document_content.append(f"• Applications Data Pages: {applications_data.get('TotalPages', 1)}")
+        document_content.append(f"• Questions Data Total: {questions_data.get('TotalCount', 0)}")
         
         # Write to file
         with open(self.document_path, 'w', encoding='utf-8') as f:
             f.write('\n'.join(document_content))
         
         print(f"Document successfully generated: {self.document_path}")
-        print(f"Processed {total_applications} applications with {questions_data.get('totalCount', 0)} questions")
+        print(f"Processed {total_applications} applications with {questions_data.get('TotalCount', 0)} questions")
 
     async def upload_document_to_r2r(self):
         """
@@ -198,6 +198,10 @@ class R2RChatbot:
         Returns:
             Document ID if successful, None if failed
         """
+        # if self.client is None:
+        #     print("Initializing R2R client...")
+        #     self.client = await self._initialize_client()
+            
         if self.client is None:
             print("Cannot upload document: R2R client not available")
             return None
@@ -258,6 +262,10 @@ class R2RChatbot:
             document_id: ID of the document to check (uses self.document_id if not provided)
         """
         if self.client is None:
+            print("Initializing R2R client...")
+            self.client = await self._initialize_client()
+            
+        if self.client is None:
             print("R2R client not available")
             return None
         
@@ -304,6 +312,10 @@ class R2RChatbot:
             except Exception as e:
                 print(f"Error deleting local document file: {e}")
         if self.client is None:
+            print("Initializing R2R client...")
+            self.client = await self._initialize_client()
+            
+        if self.client is None:
             print("R2R client not available")
             return None
         
@@ -338,6 +350,10 @@ class R2RChatbot:
             Response content as string
         """
         if self.client is None:
+            print("Initializing R2R client...")
+            self.client = await self._initialize_client()
+            
+        if self.client is None:
             print("R2R client not available")
             return None
         
@@ -356,7 +372,7 @@ class R2RChatbot:
                 self.conversation_id = str(conversation.results.id)
                 conv_id = self.conversation_id
             
-            query = """### Answer the following query without any additional context or mentioning the document in your response:
+            query = """### Answer the following query without any additional context or mentioning the document in your response. Don't include any markdown or latex in your response:
             """
             response = await self.client.retrieval.agent(
                 message={"role": "user", "content": query + message},
@@ -391,6 +407,10 @@ class R2RChatbot:
         Returns:
             Response content as string
         """
+        if self.client is None:
+            print("Initializing R2R client...")
+            self.client = await self._initialize_client()
+            
         if self.client is None:
             print("R2R client not available")
             return None

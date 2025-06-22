@@ -1,8 +1,7 @@
 from fastapi import FastAPI, HTTPException, BackgroundTasks
-from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Dict, List, Optional, AsyncGenerator
+from typing import Dict, List, Optional, Any
 import asyncio
 import json
 import uuid
@@ -51,8 +50,8 @@ class ChatSession:
 # Request/Response Models
 class InitializeChatRequest(BaseModel):
     user_id: int
-    applications_data: dict
-    questions_data: dict
+    applications_data: Dict
+    questions_data: Dict
 
 class InitializeChatResponse(BaseModel):
     session_id: str
@@ -136,6 +135,9 @@ async def initialize_chat(request: InitializeChatRequest):
         # Create chatbot instance
         chatbot = R2RChatbot(user_id=request.user_id)
         
+        # Initialize the client (now it's async)
+        chatbot.client = await chatbot._initialize_client()
+        
         if chatbot.client is None:
             raise HTTPException(status_code=500, detail="R2R client initialization failed")
         
@@ -165,69 +167,36 @@ async def initialize_chat(request: InitializeChatRequest):
         logger.error(f"Error initializing chat: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to initialize chat: {str(e)}")
 
-@app.post("/send-message")
+@app.post("/send-message", response_model=SendMessageResponse)
 async def send_message(request: SendMessageRequest):
     """
-    Send a message to the chatbot with streaming response.
+    Send a message to the chatbot and return the complete response.
     """
     session = get_session(request.session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found or expired")
     
-    async def generate_response() -> AsyncGenerator[str, None]:
-        try:
-            # Get response from chatbot
-            response = await session.chatbot.send_message_to_r2r(request.message)
+    try:
+        # Get response from chatbot
+        response = await session.chatbot.send_message_to_r2r(request.message)
+        
+        if response:
+            return SendMessageResponse(
+                response=response,
+                conversation_id=session.chatbot.conversation_id
+            )
+        else:
+            raise HTTPException(
+                status_code=500, 
+                detail="Sorry, I couldn't process your message. Please try again."
+            )
             
-            if response:
-                # Stream the response word by word for better UX
-                words = response.split()
-                for i, word in enumerate(words):
-                    chunk = {
-                        "type": "content",
-                        "data": word + " ",
-                        "is_final": i == len(words) - 1
-                    }
-                    yield f"data: {json.dumps(chunk)}\n\n"
-                    await asyncio.sleep(0.05)  # Small delay for streaming effect
-                
-                # Send final metadata
-                final_chunk = {
-                    "type": "metadata",
-                    "data": {
-                        "conversation_id": session.chatbot.conversation_id,
-                        "document_id": session.chatbot.document_id,
-                        "session_id": session.session_id
-                    },
-                    "is_final": True
-                }
-                yield f"data: {json.dumps(final_chunk)}\n\n"
-            else:
-                error_chunk = {
-                    "type": "error",
-                    "data": "Sorry, I couldn't process your message. Please try again.",
-                    "is_final": True
-                }
-                yield f"data: {json.dumps(error_chunk)}\n\n"
-                
-        except Exception as e:
-            logger.error(f"Error processing message: {e}")
-            error_chunk = {
-                "type": "error",
-                "data": f"An error occurred: {str(e)}",
-                "is_final": True
-            }
-            yield f"data: {json.dumps(error_chunk)}\n\n"
-    
-    return StreamingResponse(
-        generate_response(),
-        media_type="text/plain",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "Content-Type": "text/event-stream",
-        }
-    )
+    except Exception as e:
+        logger.error(f"Error processing message: {e}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"An error occurred: {str(e)}"
+        )
 
 @app.post("/close-chat")
 async def close_chat(request: CloseChatRequest):
